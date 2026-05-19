@@ -6,6 +6,28 @@
 const cache = new Map();
 
 /**
+ * 检测是否本地开发环境
+ */
+function isLocal() {
+    const host = window.location.hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.');
+}
+
+/**
+ * 构建请求 URL：本地直连 NewsAPI，生产走 Vercel 代理
+ * @param {string} endpoint  - 'top-headlines' | 'everything'
+ * @param {object} params    - 不含 apiKey 的查询参数
+ */
+function buildUrl(endpoint, params) {
+    if (isLocal()) {
+        params.apiKey = CONFIG.API_KEY;
+        return `${CONFIG.BASE_URL}/${endpoint}?${new URLSearchParams(params)}`;
+    }
+    // 生产环境：走 Vercel Serverless 代理，Key 在服务端注入
+    return `/api/news?endpoint=${endpoint}&${new URLSearchParams(params)}`;
+}
+
+/**
  * 带超时的 fetch 封装
  */
 function fetchWithTimeout(url, timeoutMs = CONFIG.FETCH_TIMEOUT) {
@@ -82,16 +104,15 @@ async function fetchTopHeadlines(country, category, page = 1) {
     const cached = cacheGet(key);
     if (cached) return cached;
 
-    const params = new URLSearchParams({
-        apiKey:   CONFIG.API_KEY,
-        country:  country,
-        category: category,
+    const url = buildUrl('top-headlines', {
+        country,
+        category,
         pageSize: CONFIG.PAGE_SIZE,
-        page:     page
+        page
     });
 
     try {
-        const res = await fetchWithTimeout(`${CONFIG.BASE_URL}/top-headlines?${params}`);
+        const res = await fetchWithTimeout(url);
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.message || `HTTP ${res.status}`);
@@ -135,17 +156,16 @@ async function fetchEverythingByLang(lang, category = 'general', page = 1) {
 
     // 用分类关键词 + 语言过滤
     const catKw = (CONFIG.CATEGORY_KW[category] && CONFIG.CATEGORY_KW[category][lang]) || 'news';
-    const params = new URLSearchParams({
-        apiKey:   CONFIG.API_KEY,
+    const url = buildUrl('everything', {
         q:        catKw,
         language: lang,
         sortBy:   'publishedAt',
         pageSize: CONFIG.PAGE_SIZE,
-        page:     page
+        page
     });
 
     try {
-        const res = await fetchWithTimeout(`${CONFIG.BASE_URL}/everything?${params}`);
+        const res = await fetchWithTimeout(url);
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.message || `HTTP ${res.status}`);
@@ -176,16 +196,15 @@ async function fetchEverythingByKeyword(keyword, category = 'general', page = 1)
     // 国家关键词 + 分类关键词合并搜索
     const catKw = (CONFIG.CATEGORY_KW[category] && CONFIG.CATEGORY_KW[category]['en']) || 'news';
     const q = `${keyword} ${catKw}`;
-    const params = new URLSearchParams({
-        apiKey:   CONFIG.API_KEY,
-        q:        q,
+    const url = buildUrl('everything', {
+        q,
         sortBy:   'publishedAt',
         pageSize: CONFIG.PAGE_SIZE,
-        page:     page
+        page
     });
 
     try {
-        const res = await fetchWithTimeout(`${CONFIG.BASE_URL}/everything?${params}`);
+        const res = await fetchWithTimeout(url);
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.message || `HTTP ${res.status}`);
@@ -219,17 +238,16 @@ async function fetchEverything(keyword, country, page = 1) {
         // 对于非中文源，不加多余限定
     }
 
-    const params = new URLSearchParams({
-        apiKey:   CONFIG.API_KEY,
-        q:        q,
+    const url = buildUrl('everything', {
+        q,
         pageSize: CONFIG.PAGE_SIZE,
-        page:     page,
+        page,
         sortBy:   'publishedAt',
         language: country === 'cn' ? 'zh' : 'en'
     });
 
     try {
-        const res = await fetchWithTimeout(`${CONFIG.BASE_URL}/everything?${params}`);
+        const res = await fetchWithTimeout(url);
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.message || `HTTP ${res.status}`);
